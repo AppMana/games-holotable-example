@@ -2,4 +2,4 @@
 # url = https://username:password@yourhexchars.execute-api.aws-region.amazonaws.com/lfs
 # fetchexclude = "Vendor/**"
 [lfs]
-	url = https://t:zI0RfuVzqlt5pSbRElmEPqz5yVbWlIPy@lfs.appmana.com/AppMana/unity-starter
+	url = https://t:4mk4n5wcdeLHLz5iOmgh25Lk67ZyRw3B@lfs.appmana.com/AppMana/holotable-example
