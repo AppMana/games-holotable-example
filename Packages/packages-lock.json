@@ -1,15 +1,16 @@
 {
   "dependencies": {
     "com.appmana.unity.public": {
-      "version": "file:/home/administrator/Documents/appmana/appmana-unity-plugin-public/src",
+      "version": "https://github.com/AppMana/appmana-unity-plugin.git#v2.4.11",
       "depth": 0,
-      "source": "local",
+      "source": "git",
       "dependencies": {
         "com.unity.inputsystem": "1.5.0",
         "com.unity.nuget.newtonsoft-json": "1.0.0",
         "com.cysharp.unitask": "2.3.3",
         "com.neuecc.unirx": "7.1.0"
-      }
+      },
+      "hash": "d67dffbc4e0a13064f2e4a20bb5c2a45eacb3059"
     },
     "com.cysharp.unitask": {
       "version": "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask",
