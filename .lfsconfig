@@ -1,5 +1,2 @@
-# [lfs]
-# url = https://username:password@yourhexchars.execute-api.aws-region.amazonaws.com/lfs
-# fetchexclude = "Vendor/**"
 [lfs]
-	url = https://t:zI0RfuVzqlt5pSbRElmEPqz5yVbWlIPy@lfs.appmana.com/AppMana/unity-starter
+url = https://t:hIWMzwNIlQ7wYcstVE0k6RhQKeFsXn9tBzk867KanSbFFytZhveRVPq4EeQRmzJzHMJlo3ylQUfHoftlANpkCf@lfs.appmana.com/AppMana/games-holotable-example
