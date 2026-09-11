@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.appmana.unity.public": "https://github.com/AppMana/appmana-unity-plugin.git#v2.4.11",
+    "com.appmana.unity.public": "https://github.com/AppMana/appmana-unity-plugin.git#v3.0.0",
     "com.cysharp.unitask": "https://github.com/Cysharp/UniTask.git?path=src/UniTask/Assets/Plugins/UniTask",
     "com.neuecc.unirx": "https://github.com/neuecc/UniRx.git?path=Assets/Plugins/UniRx/Scripts",
     "com.unity.ai.navigation": "2.0.10",
