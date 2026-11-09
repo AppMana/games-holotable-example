@@ -90,6 +90,8 @@ namespace HoloTable.Tests.PlayMode
             Assert.IsTrue(vfx.HasVector4("InteractionWaveColor"));
             Assert.IsTrue(vfx.HasVector3("LandingTargetPosition"));
             Assert.IsTrue(vfx.HasBool("DisplayTarget"));
+            Assert.AreEqual(50f, vfx.GetFloat("BlendSpeed"), 1e-3f,
+                "PinScreen VFX BlendSpeed must default to crisp 50/s low-latency tracking.");
             Assert.AreEqual(65536, vfx.aliveParticleCount, "All 65,536 holotable pins must spawn and compile cleanly.");
         }
 
@@ -133,6 +135,15 @@ namespace HoloTable.Tests.PlayMode
 
             ExecuteEvents.ExecuteHierarchy(hitTarget, eventData, ExecuteEvents.pointerEnterHandler);
             ExecuteEvents.ExecuteHierarchy(hitTarget, eventData, ExecuteEvents.pointerMoveHandler);
+
+            // Verify zero-frame-delay LateUpdate push: before the next frame's Update even runs,
+            // the current frame's LateUpdate must already push InteractionCursor & DisplayTarget to VFX!
+            yield return null;
+            var firstFrameCursor = vfx.GetVector4("InteractionCursor");
+            Assert.That(Vector2.Distance(new Vector2(firstFrameCursor.x, firstFrameCursor.y), localPosA), Is.LessThan(0.12f),
+                "HoloTableVfxVisualizer.LateUpdate must push updated cursor XZ to VFX uniforms on the exact same frame.");
+            Assert.That(firstFrameCursor.z, Is.GreaterThan(0f),
+                "HoloTableVfxVisualizer.LateUpdate must advance TargeterPresence > 0 on the exact same frame.");
 
             float fadeInDeadline = Time.realtimeSinceStartup + 2.0f;
             while (visualizer.Simulation.TargeterPresence < 0.99f && Time.realtimeSinceStartup < fadeInDeadline)

@@ -119,10 +119,15 @@ namespace HoloTable.Tests.EditMode
             var diagonalOffTick = sim.SampleLocalXZ(posA.x + tickRadius * 0.7071f, posA.y + tickRadius * 0.7071f);
             Assert.That(cardinalTick.TargeterMask, Is.GreaterThan(diagonalOffTick.TargeterMask + 0.35f));
 
-            // Move pointer to a second position and verify mountain peak & targeter follow in real time
+            // Move pointer to a second position and verify single-frame crisp response (>80% in 1 frame at 60Hz)
             var posB = new Vector2(-1.10f, 0.65f);
+            float totalMoveDist = Vector2.Distance(posA, posB);
             sim.SetPointerLocalXZ(posB);
-            for (int i = 0; i < 12; i++)
+            sim.Step(1f / 60f);
+            Assert.That(Vector2.Distance(sim.CurrentCursorLocalXZ, posB), Is.LessThan(totalMoveDist * 0.20f),
+                "CursorFollowSharpness=120 must converge >80% of cursor jump on the very first 60Hz frame.");
+
+            for (int i = 0; i < 4; i++)
             {
                 sim.Step(1f / 60f);
             }

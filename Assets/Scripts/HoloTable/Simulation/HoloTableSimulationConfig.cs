@@ -51,8 +51,8 @@ namespace HoloTable.Simulation
             BaseLocalY = -0.013f,
             MaxDisplacement = 0.44f,
 
-            CursorFollowSharpness = 32f,
-            PresenceFadeInSpeed = 16f,
+            CursorFollowSharpness = 120f,
+            PresenceFadeInSpeed = 40f,
             PresenceFadeOutSpeed = 5.5f,
             TargeterPhaseSpeed = 1.6f,
 
@@ -87,8 +87,8 @@ namespace HoloTable.Simulation
             }
 
             c.MaxDisplacement = SanitizePositive(c.MaxDisplacement, 0.44f, 0.05f, 2f);
-            c.CursorFollowSharpness = SanitizePositive(c.CursorFollowSharpness, 32f, 1f, 200f);
-            c.PresenceFadeInSpeed = SanitizePositive(c.PresenceFadeInSpeed, 16f, 0.5f, 100f);
+            c.CursorFollowSharpness = SanitizePositive(c.CursorFollowSharpness, 120f, 1f, 300f);
+            c.PresenceFadeInSpeed = SanitizePositive(c.PresenceFadeInSpeed, 40f, 0.5f, 200f);
             c.PresenceFadeOutSpeed = SanitizePositive(c.PresenceFadeOutSpeed, 5.5f, 0.5f, 100f);
             c.TargeterPhaseSpeed = float.IsFinite(c.TargeterPhaseSpeed) ? Mathf.Clamp(c.TargeterPhaseSpeed, -20f, 20f) : 1.6f;
 

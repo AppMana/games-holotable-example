@@ -107,7 +107,11 @@ namespace HoloTable.Runtime
             }
         }
 
-        private void Update()
+        /// <summary>
+        /// Steps simulation and pushes GPU VFX uniforms in LateUpdate so pointer events processed
+        /// during EventSystem.Update() take effect in VFX Graph on the exact same rendered frame.
+        /// </summary>
+        private void LateUpdate()
         {
             if (m_Simulation == null)
             {
