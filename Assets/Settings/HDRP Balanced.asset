@@ -217,7 +217,7 @@ MonoBehaviour:
     supportSSR: 0
     supportSSRTransparent: 0
     supportSSAO: 1
-    supportSSGI: 1
+    supportSSGI: 0
     supportSubsurfaceScattering: 1
     subsurfaceScatteringAttenuation: 1
     sssSampleBudget:
@@ -264,7 +264,7 @@ MonoBehaviour:
       m_Values: 000100000002000000040000
       m_SchemaId:
         m_Id: With3Levels
-    supportDecals: 1
+    supportDecals: 0
     supportDecalLayers: 0
     supportSurfaceGradient: 0
     decalNormalBufferHP: 0
@@ -279,13 +279,13 @@ MonoBehaviour:
     supportTerrainHole: 0
     lightProbeSystem: 0
     oldLightProbeSystem: 0
-    probeVolumeMemoryBudget: 1024
+    probeVolumeMemoryBudget: 64
     supportProbeVolumeGPUStreaming: 0
     supportProbeVolumeDiskStreaming: 0
     probeVolumeSHBands: 1
     supportProbeVolumeScenarios: 0
-    supportProbeVolumeScenarioBlending: 1
-    probeVolumeBlendingMemoryBudget: 128
+    supportProbeVolumeScenarioBlending: 0
+    probeVolumeBlendingMemoryBudget: 64
     supportRayTracing: 0
     supportVFXRayTracing: 0
     supportedRayTracingMode: 3
@@ -293,18 +293,18 @@ MonoBehaviour:
       cookieAtlasSize: 512
       cookieFormat: 74
       cookieAtlasLastValidMip: 0
-      cookieTexArraySize: 16
-      planarReflectionAtlasSize: 1024
-      reflectionProbeCacheSize: 32
+      cookieTexArraySize: 4
+      planarReflectionAtlasSize: 512
+      reflectionProbeCacheSize: 16
       reflectionCubemapSize: 256
-      maxEnvLightsOnScreen: 32
+      maxEnvLightsOnScreen: 16
       reflectionCacheCompressed: 1
       reflectionProbeFormat: 74
-      reflectionProbeTexCacheSize: 8192
+      reflectionProbeTexCacheSize: 2048
       reflectionProbeTexLastValidCubeMip: 3
       reflectionProbeTexLastValidPlanarMip: 0
       reflectionProbeDecreaseResToFit: 1
-      skyReflectionSize: 512
+      skyReflectionSize: 256
       skyLightingOverrideLayerMask:
         serializedVersion: 2
         m_Bits: 0
@@ -325,15 +325,15 @@ MonoBehaviour:
       directionalShadowFilteringQuality: 1
       areaShadowFilteringQuality: 0
       punctualLightShadowAtlas:
-        shadowAtlasResolution: 4096
+        shadowAtlasResolution: 2048
         shadowAtlasDepthBits: 16
         useDynamicViewportRescale: 1
       areaLightShadowAtlas:
-        shadowAtlasResolution: 2048
+        shadowAtlasResolution: 1024
         shadowAtlasDepthBits: 16
         useDynamicViewportRescale: 0
-      cachedPunctualLightShadowAtlas: 2048
-      cachedAreaLightShadowAtlas: 2048
+      cachedPunctualLightShadowAtlas: 1024
+      cachedAreaLightShadowAtlas: 512
       allowDirectionalMixedCachedShadows: 0
       shadowResolutionDirectional:
         m_Values: 00010000000200000004000000080000
@@ -347,16 +347,16 @@ MonoBehaviour:
         m_Values: 00010000000200000004000000080000
         m_SchemaId:
           m_Id: With4Levels
-      maxDirectionalShadowMapResolution: 2048
-      maxPunctualShadowMapResolution: 2048
-      maxAreaShadowMapResolution: 2048
+      maxDirectionalShadowMapResolution: 1024
+      maxPunctualShadowMapResolution: 1024
+      maxAreaShadowMapResolution: 1024
       supportScreenSpaceShadows: 0
       maxScreenSpaceShadowSlots: 4
       screenSpaceShadowBufferFormat: 48
     decalSettings:
       drawDistance: 1000
-      atlasWidth: 2048
-      atlasHeight: 2048
+      atlasWidth: 512
+      atlasHeight: 512
       transparentTextureResolution:
         m_Values: 000100000002000000040000
         m_SchemaId:

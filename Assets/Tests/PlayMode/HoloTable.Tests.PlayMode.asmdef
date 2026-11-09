@@ -1,0 +1,30 @@
+{
+    "name": "HoloTable.Tests.PlayMode",
+    "rootNamespace": "HoloTable.Tests.PlayMode",
+    "references": [
+        "HoloTable.Simulation",
+        "HoloTable.Runtime",
+        "AppManaPublic",
+        "Unity.VisualEffectGraph.Runtime",
+        "Unity.InputSystem",
+        "UnityEngine.UI",
+        "Unity.RenderPipelines.HighDefinition.Runtime",
+        "Cinemachine"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

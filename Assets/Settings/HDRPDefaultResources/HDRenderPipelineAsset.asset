@@ -259,7 +259,7 @@ MonoBehaviour:
       m_Values: 000100000002000000040000
       m_SchemaId:
         m_Id: With3Levels
-    supportDecals: 1
+    supportDecals: 0
     supportDecalLayers: 0
     supportSurfaceGradient: 0
     decalNormalBufferHP: 0
@@ -274,28 +274,28 @@ MonoBehaviour:
     supportTerrainHole: 0
     lightProbeSystem: 0
     oldLightProbeSystem: 0
-    probeVolumeMemoryBudget: 1024
+    probeVolumeMemoryBudget: 64
     supportProbeVolumeGPUStreaming: 0
     supportProbeVolumeDiskStreaming: 0
     probeVolumeSHBands: 1
     supportProbeVolumeScenarios: 0
-    supportProbeVolumeScenarioBlending: 1
-    probeVolumeBlendingMemoryBudget: 128
+    supportProbeVolumeScenarioBlending: 0
+    probeVolumeBlendingMemoryBudget: 64
     supportRayTracing: 0
     supportVFXRayTracing: 0
     supportedRayTracingMode: 3
     lightLoopSettings:
-      cookieAtlasSize: 2048
+      cookieAtlasSize: 512
       cookieFormat: 74
       cookieAtlasLastValidMip: 0
       cookieTexArraySize: 1
-      planarReflectionAtlasSize: 1024
-      reflectionProbeCacheSize: 64
+      planarReflectionAtlasSize: 512
+      reflectionProbeCacheSize: 16
       reflectionCubemapSize: 256
-      maxEnvLightsOnScreen: 64
-      reflectionCacheCompressed: 0
+      maxEnvLightsOnScreen: 16
+      reflectionCacheCompressed: 1
       reflectionProbeFormat: 74
-      reflectionProbeTexCacheSize: 1073750016
+      reflectionProbeTexCacheSize: 2048
       reflectionProbeTexLastValidCubeMip: 3
       reflectionProbeTexLastValidPlanarMip: 0
       reflectionProbeDecreaseResToFit: 1

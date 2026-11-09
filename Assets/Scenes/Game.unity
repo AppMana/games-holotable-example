@@ -93,7 +93,7 @@ LightmapSettings:
     m_ExportTrainingData: 0
     m_TrainingDataDestination: TrainingData
     m_LightProbeSampleCountMultiplier: 4
-  m_LightingDataAsset: {fileID: 112000000, guid: 1d538c2c9aeed184cb3477f129d702dd,
+  m_LightingDataAsset: {fileID: 112000000, guid: 33579596dca2111c9aff41b1df73e1ef,
     type: 2}
   m_LightingSettings: {fileID: 4890085278179872738, guid: c077f7c37e78c3f69becbfb6e87d36e7,
     type: 2}
@@ -577,14 +577,15 @@ MonoBehaviour:
   m_GameObject: {fileID: 1339021893}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: dc42784cf147c0c48a680349fa168899, type: 3}
+  m_Script: {fileID: 11500000, guid: f5bb04f149254a0fbccbf7ddca569948, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: 
+  m_EditorClassIdentifier: AppManaPublic::AppMana.Multiplayer.PerUserGraphicRaycaster
   m_IgnoreReversedGraphics: 1
   m_BlockingObjects: 0
   m_BlockingMask:
     serializedVersion: 2
     m_Bits: 4294967295
+  m_RemotePlayableConfiguration: {fileID: 1823688469}
 --- !u!114 &1339021895
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -717,7 +718,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_RaycastTarget: 1
+  m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
   m_OnCullStateChanged:
@@ -1686,8 +1687,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3819fa90793afc241acf43653dec6024, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_CancelsIdle: {fileID: 3001919216989983466, guid: b08e90b9cd3694753a33fbed896498c9,
-    type: 3}
+  m_CancelsIdle: {fileID: 393484481}
   m_Camera: {fileID: 1599236643}
   m_HorizontalOrbitSpeed: 4
   m_Timeout: 2.4
@@ -1944,7 +1944,7 @@ MonoBehaviour:
   clearDepth: 1
   volumeLayerMask:
     serializedVersion: 2
-    m_Bits: 1
+    m_Bits: 257
   volumeAnchorOverride: {fileID: 0}
   antialiasing: 0
   SMAAQuality: 2
