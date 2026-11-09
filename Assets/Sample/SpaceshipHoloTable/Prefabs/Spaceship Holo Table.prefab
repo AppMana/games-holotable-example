@@ -1273,7 +1273,6 @@ MonoBehaviour:
     WaveAmplitude: 0.24
     WaveRingWidth: 0.15
     MaxActiveWaves: 16
-  m_FieldResolution: 192
   m_VisualEffect: {fileID: 6848805084309048490}
   m_PointerInput: {fileID: 3700258009854635565}
   m_TargetAnchorTransform: {fileID: 795912071587438034}

@@ -296,5 +296,208 @@ namespace HoloTable.Tests.EditMode
                 Assert.IsTrue(float.IsFinite(decoded), $"Buffer index {i} produced non-finite half value.");
             }
         }
+
+        [Test]
+        public void PackGpuUniforms_MatchesSampleLocalXZ_With8SimultaneousWaves_AndZeroAllocations()
+        {
+            var sim = new HoloTableSimulation();
+            sim.SetPointerLocalXZ(new Vector2(-0.62f, 0.44f));
+
+            Vector2[] waveOrigins =
+            {
+                new Vector2(-1.10f, -0.75f),
+                new Vector2(0.85f, -0.50f),
+                new Vector2(1.20f, 0.65f),
+                new Vector2(-0.30f, 1.05f),
+                new Vector2(0.15f, -1.15f),
+                new Vector2(-0.95f, 0.20f),
+                new Vector2(0.55f, 0.15f),
+                new Vector2(0.00f, 0.00f)
+            };
+
+            for (int i = 0; i < waveOrigins.Length; i++)
+            {
+                sim.TriggerWaveAtLocalXZ(waveOrigins[i], 0.7f + 0.08f * i);
+                sim.Step(0.09f);
+            }
+
+            Assert.AreEqual(8, sim.ActiveWaveCount);
+
+            int packedCount = sim.PackGpuUniforms(
+                out var cursorState,
+                out var mountainParams,
+                out var targeterParams,
+                out var waveParams,
+                out var waves0,
+                out var waves1);
+            Assert.AreEqual(8, packedCount);
+
+            for (int ix = -8; ix <= 8; ix++)
+            {
+                for (int iz = -8; iz <= 8; iz++)
+                {
+                    float x = ix * 0.22f;
+                    float z = iz * 0.20f;
+                    if (!sim.IsInsideHexagon(new Vector2(x, z)))
+                    {
+                        continue;
+                    }
+
+                    var cpu = sim.SampleLocalXZ(x, z);
+                    var gpu = EvaluatePackedGpuShaderMirror(
+                        new Vector3(x, 0f, z),
+                        cursorState,
+                        mountainParams,
+                        targeterParams,
+                        waveParams,
+                        waves0,
+                        waves1);
+
+                    Assert.AreEqual(cpu.TotalDisplacement, gpu.x, 1e-4f, $"Displacement mismatch at ({x},{z})");
+                    Assert.AreEqual(cpu.TargeterMask, gpu.y, 1e-4f, $"TargeterMask mismatch at ({x},{z})");
+                    Assert.AreEqual(cpu.WaveCrestGlow, gpu.z, 1e-4f, $"WaveCrestGlow mismatch at ({x},{z})");
+                    Assert.AreEqual(cpu.MountainMask, gpu.w, 1e-4f, $"MountainMask mismatch at ({x},{z})");
+                }
+            }
+
+            // Warmup JIT, then verify zero managed allocations and sub-0.05ms per frame across 1,000 frames
+            sim.Step(1f / 60f);
+            sim.PackGpuUniforms(out _, out _, out _, out _, out _, out _);
+
+            long allocBefore = GC.GetAllocatedBytesForCurrentThread();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < 1000; i++)
+            {
+                sim.Step(1f / 60f);
+                sim.PackGpuUniforms(out _, out _, out _, out _, out _, out _);
+            }
+            sw.Stop();
+            long allocAfter = GC.GetAllocatedBytesForCurrentThread();
+
+            double avgMs = sw.Elapsed.TotalMilliseconds / 1000.0;
+            Assert.AreEqual(allocBefore, allocAfter, "Step + PackGpuUniforms must allocate zero managed bytes.");
+            Assert.That(avgMs, Is.LessThan(0.05), $"Step + PackGpuUniforms took {avgMs:F4} ms/frame (expected < 0.05 ms).");
+        }
+
+        private static Vector4 EvaluatePackedGpuShaderMirror(
+            Vector3 targetPos,
+            Vector4 cursorState,
+            Vector4 mountainParams,
+            Vector4 targeterParams,
+            Vector4 waveParams,
+            Matrix4x4 waves0,
+            Matrix4x4 waves1)
+        {
+            float presence = cursorState.z;
+            float mountainHeight = 0f;
+            float targeterMask = 0f;
+            float mountainMask = 0f;
+
+            if (presence > 1e-4f)
+            {
+                float dx = targetPos.x - cursorState.x;
+                float dz = targetPos.z - cursorState.y;
+                float rSq = dx * dx + dz * dz;
+                float r = Mathf.Sqrt(rSq);
+
+                float expCore = rSq * mountainParams.y;
+                float core = expCore < 12f ? Mathf.Exp(-expCore) : 0f;
+                float expFoot = rSq * mountainParams.w;
+                float foothill = expFoot < 12f ? Mathf.Exp(-expFoot) : 0f;
+
+                float ringRadius = targeterParams.x;
+                float invRing = targeterParams.y;
+                float ringDist = Mathf.Abs(r - ringRadius);
+                float expOuter = ringDist * ringDist * invRing;
+                float outerRing = expOuter < 12f ? Mathf.Exp(-expOuter) : 0f;
+
+                float innerRadius = ringRadius * (0.56f + 0.04f * cursorState.w);
+                float innerDist = Mathf.Abs(r - innerRadius);
+                float expInner = innerDist * innerDist * invRing * 1.8f;
+                float innerRing = 0.65f * (expInner < 12f ? Mathf.Exp(-expInner) : 0f);
+
+                float expBull = rSq * targeterParams.w;
+                float bullseye = expBull < 12f ? Mathf.Exp(-expBull) : 0f;
+
+                float t0 = Mathf.Clamp01((r - 0.16f) / 0.05f);
+                float t1 = Mathf.Clamp01((r - 0.50f) / 0.06f);
+                float window = (t0 * t0 * (3f - 2f * t0)) * (1f - t1 * t1 * (3f - 2f * t1));
+                float crosshair = 0f;
+                if (window > 1e-4f)
+                {
+                    const float invTick = 1f / (2f * 0.044f * 0.044f);
+                    float ex = dx * dx * invTick;
+                    float ez = dz * dz * invTick;
+                    float tickX = ex < 12f ? Mathf.Exp(-ex) : 0f;
+                    float tickZ = ez < 12f ? Mathf.Exp(-ez) : 0f;
+                    crosshair = window * Mathf.Max(tickX, tickZ) * 0.92f;
+                }
+
+                float rawMountain = mountainParams.x * core + mountainParams.z * foothill + targeterParams.z * outerRing;
+                mountainHeight = rawMountain * presence;
+                targeterMask = Mathf.Clamp01(Mathf.Max(Mathf.Max(outerRing, innerRing), Mathf.Max(bullseye * 0.95f, crosshair)) * presence);
+                mountainMask = Mathf.Clamp01(Mathf.Max(foothill, outerRing * 0.85f) * presence);
+            }
+
+            Vector2 w0 = EvaluateWaveMatrixMirror(targetPos, waves0, waveParams);
+            Vector2 w1 = EvaluateWaveMatrixMirror(targetPos, waves1, waveParams);
+            float totalDisp = Mathf.Clamp(mountainHeight + w0.x + w1.x, -0.14f, waveParams.w);
+            float waveGlow = Mathf.Clamp01(w0.y + w1.y);
+            return new Vector4(totalDisp, targeterMask, waveGlow, mountainMask);
+        }
+
+        private static Vector2 EvaluateWaveMatrixMirror(Vector3 targetPos, Matrix4x4 wavesMat, Vector4 waveParams)
+        {
+            float width = waveParams.x;
+            float invTwoWidthSq = waveParams.y;
+            float baseAmp = waveParams.z;
+            float maxBand = width * 4f;
+            float sumH = 0f;
+            float sumG = 0f;
+
+            for (int i = 0; i < 4; i++)
+            {
+                Vector4 w = wavesMat.GetRow(i);
+                float env = w.w;
+                if (env <= 1e-5f)
+                {
+                    continue;
+                }
+
+                float front = w.z;
+                float maxReach = front + maxBand;
+                float dx = targetPos.x - w.x;
+                float dz = targetPos.z - w.y;
+                if (Mathf.Abs(dx) > maxReach || Mathf.Abs(dz) > maxReach)
+                {
+                    continue;
+                }
+
+                float rSq = dx * dx + dz * dz;
+                float minReach = Mathf.Max(0f, front - maxBand * 1.4f);
+                if (rSq > maxReach * maxReach || rSq < minReach * minReach)
+                {
+                    continue;
+                }
+
+                float r = Mathf.Sqrt(rSq);
+                float delta = r - front;
+                float e0 = delta * delta * invTwoWidthSq;
+                float primary = e0 < 12f ? Mathf.Exp(-e0) : 0f;
+
+                float d1 = delta + width * 1.55f;
+                float e1 = d1 * d1 * invTwoWidthSq * 0.85f;
+                float trough = (r <= front && e1 < 12f) ? 0.34f * Mathf.Exp(-e1) : 0f;
+
+                float d2 = delta + width * 3.0f;
+                float e2 = d2 * d2 * invTwoWidthSq * 0.75f;
+                float secondary = (r <= front && e2 < 12f) ? 0.22f * Mathf.Exp(-e2) : 0f;
+
+                sumH += baseAmp * env * (primary - trough + secondary);
+                sumG += env * Mathf.Clamp01(primary + secondary * 0.45f);
+            }
+
+            return new Vector2(sumH, sumG);
+        }
     }
 }

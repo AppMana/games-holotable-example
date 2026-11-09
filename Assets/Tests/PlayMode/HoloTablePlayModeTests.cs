@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using AppMana.ComponentModel;
@@ -8,7 +9,6 @@ using AppMana.Multiplayer;
 using Cinemachine;
 using HoloTable.Runtime;
 using NUnit.Framework;
-using Unity.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.Profiling;
@@ -16,6 +16,8 @@ using UnityEngine.Rendering.HighDefinition;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using UnityEngine.UI;
+using UnityEngine.VFX;
+using Debug = UnityEngine.Debug;
 
 namespace HoloTable.Tests.PlayMode
 {
@@ -70,13 +72,20 @@ namespace HoloTable.Tests.PlayMode
             var plainRaycaster = canvas.GetComponent<GraphicRaycaster>();
             Assert.IsTrue(plainRaycaster is PerUserGraphicRaycaster);
 
-            // Part B1 & Part C: 65,536 HoloTable pins alive and interactive VFX parameters exposed
+            // Part B1 & Part C: 65,536 HoloTable pins alive and zero-texture GPU uniform parameters exposed
             var visualizer = UnityEngine.Object.FindFirstObjectByType<HoloTableVfxVisualizer>();
             Assert.IsNotNull(visualizer, "HoloTableVfxVisualizer must be active on VFX:PinScreen.");
             var vfx = visualizer.VisualEffectComponent;
             Assert.IsNotNull(vfx);
 
-            Assert.IsTrue(vfx.HasTexture("InteractionField"));
+            Assert.IsFalse(vfx.HasTexture("InteractionField"),
+                "Dynamic CPU Texture2D InteractionField must be eliminated in favor of GPU uniform vectors/matrices.");
+            Assert.IsTrue(vfx.HasVector4("InteractionCursor"));
+            Assert.IsTrue(vfx.HasVector4("InteractionMountainParams"));
+            Assert.IsTrue(vfx.HasVector4("InteractionTargeterParams"));
+            Assert.IsTrue(vfx.HasVector4("InteractionWaveParams"));
+            Assert.IsTrue(vfx.HasMatrix4x4("InteractionWaves0"));
+            Assert.IsTrue(vfx.HasMatrix4x4("InteractionWaves1"));
             Assert.IsTrue(vfx.HasVector4("InteractionTargetColor"));
             Assert.IsTrue(vfx.HasVector4("InteractionWaveColor"));
             Assert.IsTrue(vfx.HasVector3("LandingTargetPosition"));
@@ -85,7 +94,7 @@ namespace HoloTable.Tests.PlayMode
         }
 
         [UnityTest, Order(2)]
-        public IEnumerator CanonicalEventSystemPointer_RealTimeCursorMountainTargeterAndClickWave_DriveVfxAndHeightfield()
+        public IEnumerator CanonicalEventSystemPointer_RealTimeCursorMountainTargeterAndClickWave_DriveVfxUniforms()
         {
             yield return EnsureGameSceneLoaded();
 
@@ -125,8 +134,8 @@ namespace HoloTable.Tests.PlayMode
             ExecuteEvents.ExecuteHierarchy(hitTarget, eventData, ExecuteEvents.pointerEnterHandler);
             ExecuteEvents.ExecuteHierarchy(hitTarget, eventData, ExecuteEvents.pointerMoveHandler);
 
-            int fadeInGuard = 0;
-            while (visualizer.Simulation.TargeterPresence < 0.99f && fadeInGuard++ < 40)
+            float fadeInDeadline = Time.realtimeSinceStartup + 2.0f;
+            while (visualizer.Simulation.TargeterPresence < 0.99f && Time.realtimeSinceStartup < fadeInDeadline)
             {
                 yield return null;
             }
@@ -140,16 +149,16 @@ namespace HoloTable.Tests.PlayMode
             Assert.That(Vector3.Distance(vfx.GetVector3("LandingTargetPosition"), visualizer.Simulation.CurrentTargetLocalPosition),
                 Is.LessThan(1e-4f));
 
-            SampleGpuUploadedFieldAtUV(
-                visualizer,
-                visualizer.Simulation.LocalXZToUV(visualizer.Simulation.CurrentCursorLocalXZ),
+            SampleGpuUniformsAtLocalXZ(
+                vfx,
+                visualizer.Simulation.CurrentCursorLocalXZ,
                 out float heightAtA,
                 out float targetMaskAtA,
                 out _,
                 out float mountainMaskAtA);
-            Assert.That(heightAtA, Is.GreaterThan(0.24f), "Uploaded RGBAHalf field must show elevated mountain peak at cursor A.");
-            Assert.That(targetMaskAtA, Is.GreaterThan(0.85f), "Uploaded RGBAHalf field must show targeter reticle bullseye at cursor A.");
-            Assert.That(mountainMaskAtA, Is.GreaterThan(0.80f));
+            Assert.That(heightAtA, Is.GreaterThan(0.28f), "GPU VFX uniforms must evaluate elevated mountain peak at cursor A.");
+            Assert.That(targetMaskAtA, Is.GreaterThan(0.90f), "GPU VFX uniforms must evaluate targeter reticle bullseye at cursor A.");
+            Assert.That(mountainMaskAtA, Is.GreaterThan(0.85f));
 
             // 2. Move pointer to table coordinate B and confirm mountain + targeter shift in real time
             var localPosB = new Vector2(0.95f, 0.45f);
@@ -158,30 +167,31 @@ namespace HoloTable.Tests.PlayMode
             Assert.AreEqual(pointerInput.gameObject, moveDataB.pointerCurrentRaycast.gameObject);
             ExecuteEvents.ExecuteHierarchy(pointerInput.gameObject, moveDataB, ExecuteEvents.pointerMoveHandler);
 
-            int moveGuard = 0;
-            while (Vector2.Distance(visualizer.Simulation.CurrentCursorLocalXZ, localPosB) > 0.08f && moveGuard++ < 50)
+            float moveDeadline = Time.realtimeSinceStartup + 2.0f;
+            while (Vector2.Distance(visualizer.Simulation.CurrentCursorLocalXZ, localPosB) > 0.08f &&
+                   Time.realtimeSinceStartup < moveDeadline)
             {
                 yield return null;
             }
             yield return null;
 
             Assert.That(Vector2.Distance(visualizer.Simulation.CurrentCursorLocalXZ, localPosB), Is.LessThan(0.12f));
-            SampleGpuUploadedFieldAtUV(
-                visualizer,
-                visualizer.Simulation.LocalXZToUV(visualizer.Simulation.CurrentCursorLocalXZ),
+            SampleGpuUniformsAtLocalXZ(
+                vfx,
+                visualizer.Simulation.CurrentCursorLocalXZ,
                 out float heightAtB,
                 out float targetMaskAtB,
                 out _,
                 out _);
-            SampleGpuUploadedFieldAtUV(
-                visualizer,
-                visualizer.Simulation.LocalXZToUV(localPosA),
+            SampleGpuUniformsAtLocalXZ(
+                vfx,
+                localPosA,
                 out float residualHeightAtA,
                 out _,
                 out _,
                 out _);
-            Assert.That(heightAtB, Is.GreaterThan(0.24f));
-            Assert.That(targetMaskAtB, Is.GreaterThan(0.85f));
+            Assert.That(heightAtB, Is.GreaterThan(0.28f));
+            Assert.That(targetMaskAtB, Is.GreaterThan(0.90f));
             Assert.That(residualHeightAtA, Is.LessThan(0.02f), "Mountain at previous cursor A must subside when cursor moves to B.");
 
             // 3. Dispatch canonical pointer click/tap (IPointerDownHandler) at B -> verify radial wave spawns & expands
@@ -192,10 +202,10 @@ namespace HoloTable.Tests.PlayMode
 
             Assert.AreEqual(1, visualizer.Simulation.ActiveWaveCount, "Pointer press/tap must spawn an active radial wave.");
 
-            int guard = 0;
+            float waveDeadline = Time.realtimeSinceStartup + 2.5f;
             while (visualizer.Simulation.ActiveWaveCount > 0 &&
                    visualizer.Simulation.GetActiveWave(0).FrontRadius < 0.85f &&
-                   guard++ < 150)
+                   Time.realtimeSinceStartup < waveDeadline)
             {
                 yield return null;
             }
@@ -203,20 +213,20 @@ namespace HoloTable.Tests.PlayMode
             Assert.AreEqual(1, visualizer.Simulation.ActiveWaveCount);
             var wave = visualizer.Simulation.GetActiveWave(0);
             var crestPoint = wave.OriginLocalXZ + new Vector2(-wave.FrontRadius, 0f);
-            SampleGpuUploadedFieldAtUV(
-                visualizer,
-                visualizer.Simulation.LocalXZToUV(crestPoint),
+            SampleGpuUniformsAtLocalXZ(
+                vfx,
+                crestPoint,
                 out float crestHeight,
                 out _,
                 out float crestGlow,
                 out _);
-            Assert.That(crestGlow, Is.GreaterThan(0.25f), "Uploaded RGBAHalf field must carry bright wave crest glow at FrontRadius.");
-            Assert.That(crestHeight, Is.GreaterThan(0.04f), "Uploaded RGBAHalf field must carry positive wave displacement at FrontRadius.");
+            Assert.That(crestGlow, Is.GreaterThan(0.25f), "Bound VFX wave matrices must carry bright wave crest glow at FrontRadius.");
+            Assert.That(crestHeight, Is.GreaterThan(0.04f), "Bound VFX wave matrices must carry positive wave displacement at FrontRadius.");
 
             // 4. Pointer exit -> targeter & subsurface light turn off cleanly
             ExecuteEvents.ExecuteHierarchy(pointerInput.gameObject, pressDataB, ExecuteEvents.pointerExitHandler);
-            int fadeOutGuard = 0;
-            while (visualizer.Simulation.TargeterPresence > 0.001f && fadeOutGuard++ < 80)
+            float fadeOutDeadline = Time.realtimeSinceStartup + 2.5f;
+            while (visualizer.Simulation.TargeterPresence > 0.001f && Time.realtimeSinceStartup < fadeOutDeadline)
             {
                 yield return null;
             }
@@ -226,16 +236,15 @@ namespace HoloTable.Tests.PlayMode
             Assert.IsFalse(vfx.GetBool("DisplayTarget"));
             Assert.IsFalse(visualizer.TargetSubsurfaceLight.gameObject.activeSelf);
 
-            // Let remaining wave expire so next test starts from crisp idle baseline
-            int waveClearGuard = 0;
-            while (visualizer.Simulation.ActiveWaveCount > 0 && waveClearGuard++ < 250)
+            float waveClearDeadline = Time.realtimeSinceStartup + 3.5f;
+            while (visualizer.Simulation.ActiveWaveCount > 0 && Time.realtimeSinceStartup < waveClearDeadline)
             {
                 yield return null;
             }
         }
 
         [UnityTest, Order(3)]
-        public IEnumerator EnduranceOrbitWrappingMemoryAndOptionalScreenshots_RemainHealthy()
+        public IEnumerator DesktopRetina2048x1324_EightWaveCpuFrameTimeAndVramBudget_RemainWellBelowLimits()
         {
             yield return EnsureGameSceneLoaded();
 
@@ -248,6 +257,7 @@ namespace HoloTable.Tests.PlayMode
             var eventSystem = EventSystem.current;
             var visualizer = UnityEngine.Object.FindFirstObjectByType<HoloTableVfxVisualizer>();
             var pointerInput = visualizer.PointerInput;
+            var vfx = visualizer.VisualEffectComponent;
 
             // Verify OrbitOnIdle implements IHasInputActionReferences with wired cancel action and wraps CinemachinePOV axis
             var vcam = UnityEngine.Object.FindFirstObjectByType<CinemachineVirtualCamera>();
@@ -269,120 +279,146 @@ namespace HoloTable.Tests.PlayMode
             Assert.That(pov.m_HorizontalAxis.Value, Is.InRange(-180f, 180f),
                 "OrbitOnIdle must wrap CinemachinePOV horizontal axis within [-180, 180].");
 
+            // Render at exact 2048x1324 desktop Retina streaming viewport resolution
             string screenshotDir = Environment.GetEnvironmentVariable("HOLOTABLE_SCREENSHOT_DIR");
-            if (!string.IsNullOrEmpty(screenshotDir))
+            var retinaRt = new RenderTexture(2048, 1324, 24, RenderTextureFormat.ARGB32);
+            var prevTarget = mainCam.targetTexture;
+            try
             {
-                Directory.CreateDirectory(screenshotDir);
-                var vfx = visualizer.VisualEffectComponent;
-                var rt = new RenderTexture(1920, 1080, 24, RenderTextureFormat.ARGB32);
-                var prevTarget = mainCam.targetTexture;
-                try
+                mainCam.targetTexture = retinaRt;
+                pov.m_HorizontalAxis.Value = -49.68f;
+                for (int i = 0; i < 12; i++)
                 {
-                    mainCam.targetTexture = rt;
-                    pov.m_HorizontalAxis.Value = -49.68f;
-                    for (int i = 0; i < 12; i++)
-                    {
-                        visualizer.PushSimulationStateToVisuals();
-                        vfx.Simulate(1f / 60f, 1);
-                        yield return null;
-                    }
-                    SaveRenderTexturePng(mainCam, rt, Path.Combine(screenshotDir, "after_lighting_idle.png"));
-
-                    // Hover cursor at foreground-left canyon to showcase live mountain + targeter reticle
-                    var mountainSpot = new Vector2(-0.65f, -0.45f);
-                    var mountainScreen = ProjectTableLocalToScreen(mainCam, pointerInput, visualizer.transform, mountainSpot);
-                    var hoverEvt = RaycastCanonicalPointer(eventSystem, mountainScreen, pointerId: 1);
-                    ExecuteEvents.ExecuteHierarchy(pointerInput.gameObject, hoverEvt, ExecuteEvents.pointerEnterHandler);
-                    ExecuteEvents.ExecuteHierarchy(pointerInput.gameObject, hoverEvt, ExecuteEvents.pointerMoveHandler);
-
-                    int snapGuard = 0;
-                    while (visualizer.Simulation.TargeterPresence < 0.99f && snapGuard++ < 40)
-                    {
-                        visualizer.PushSimulationStateToVisuals();
-                        vfx.Simulate(1f / 60f, 1);
-                        yield return null;
-                    }
-                    for (int i = 0; i < 10; i++)
-                    {
-                        visualizer.PushSimulationStateToVisuals();
-                        vfx.Simulate(1f / 60f, 1);
-                        yield return null;
-                    }
-                    SaveRenderTexturePng(mainCam, rt, Path.Combine(screenshotDir, "after_cursor_mountain_targeter.png"));
-
-                    // Trigger click wave on right side while keeping cursor mountain + targeter active on left
-                    var waveOrigin = new Vector2(0.75f, 0.25f);
-                    var waveScreen = ProjectTableLocalToScreen(mainCam, pointerInput, visualizer.transform, waveOrigin);
-                    var clickEvt = RaycastCanonicalPointer(eventSystem, waveScreen, pointerId: 1);
-                    clickEvt.pointerPressRaycast = clickEvt.pointerCurrentRaycast;
-                    clickEvt.pressPosition = waveScreen;
-                    ExecuteEvents.ExecuteHierarchy(pointerInput.gameObject, clickEvt, ExecuteEvents.pointerDownHandler);
-
-                    var returnHoverEvt = RaycastCanonicalPointer(eventSystem, mountainScreen, pointerId: 1);
-                    ExecuteEvents.ExecuteHierarchy(pointerInput.gameObject, returnHoverEvt, ExecuteEvents.pointerMoveHandler);
-
-                    int waveFrames = 0;
-                    while (visualizer.Simulation.ActiveWaveCount > 0 &&
-                           visualizer.Simulation.GetActiveWave(0).FrontRadius < 1.15f &&
-                           waveFrames++ < 150)
-                    {
-                        visualizer.PushSimulationStateToVisuals();
-                        vfx.Simulate(1f / 60f, 1);
-                        yield return null;
-                    }
-                    SaveRenderTexturePng(mainCam, rt, Path.Combine(screenshotDir, "after_click_wave.png"));
-
-                    ExecuteEvents.ExecuteHierarchy(pointerInput.gameObject, returnHoverEvt, ExecuteEvents.pointerExitHandler);
+                    visualizer.PushSimulationStateToVisuals();
+                    vfx.Simulate(1f / 60f, 1);
+                    yield return null;
                 }
-                finally
+
+                if (!string.IsNullOrEmpty(screenshotDir))
                 {
-                    mainCam.targetTexture = prevTarget;
-                    rt.Release();
-                    UnityEngine.Object.Destroy(rt);
+                    Directory.CreateDirectory(screenshotDir);
+                    SaveRenderTexturePng(mainCam, retinaRt, Path.Combine(screenshotDir, "after_lighting_idle.png"));
                 }
+
+                // Hover cursor at foreground-left canyon to showcase live mountain + targeter reticle
+                var mountainSpot = new Vector2(-0.65f, -0.45f);
+                var mountainScreen = ProjectTableLocalToScreen(mainCam, pointerInput, visualizer.transform, mountainSpot);
+                var hoverEvt = RaycastCanonicalPointer(eventSystem, mountainScreen, pointerId: 1);
+                ExecuteEvents.ExecuteHierarchy(pointerInput.gameObject, hoverEvt, ExecuteEvents.pointerEnterHandler);
+                ExecuteEvents.ExecuteHierarchy(pointerInput.gameObject, hoverEvt, ExecuteEvents.pointerMoveHandler);
+
+                int snapGuard = 0;
+                while (visualizer.Simulation.TargeterPresence < 0.99f && snapGuard++ < 40)
+                {
+                    visualizer.Simulation.Step(1f / 60f);
+                    visualizer.PushSimulationStateToVisuals();
+                    vfx.Simulate(1f / 60f, 1);
+                    yield return null;
+                }
+                for (int i = 0; i < 8; i++)
+                {
+                    visualizer.Simulation.Step(1f / 60f);
+                    visualizer.PushSimulationStateToVisuals();
+                    vfx.Simulate(1f / 60f, 1);
+                    yield return null;
+                }
+
+                if (!string.IsNullOrEmpty(screenshotDir))
+                {
+                    SaveRenderTexturePng(mainCam, retinaRt, Path.Combine(screenshotDir, "after_cursor_mountain_targeter.png"));
+                }
+
+                // Trigger click wave on right side while keeping cursor mountain + targeter active on left
+                var waveOrigin = new Vector2(0.75f, 0.25f);
+                var waveScreen = ProjectTableLocalToScreen(mainCam, pointerInput, visualizer.transform, waveOrigin);
+                var clickEvt = RaycastCanonicalPointer(eventSystem, waveScreen, pointerId: 1);
+                clickEvt.pointerPressRaycast = clickEvt.pointerCurrentRaycast;
+                clickEvt.pressPosition = waveScreen;
+                ExecuteEvents.ExecuteHierarchy(pointerInput.gameObject, clickEvt, ExecuteEvents.pointerDownHandler);
+
+                var returnHoverEvt = RaycastCanonicalPointer(eventSystem, mountainScreen, pointerId: 1);
+                ExecuteEvents.ExecuteHierarchy(pointerInput.gameObject, returnHoverEvt, ExecuteEvents.pointerMoveHandler);
+
+                int waveFrames = 0;
+                while (visualizer.Simulation.ActiveWaveCount > 0 &&
+                       visualizer.Simulation.GetActiveWave(0).FrontRadius < 1.15f &&
+                       waveFrames++ < 150)
+                {
+                    visualizer.Simulation.Step(1f / 60f);
+                    visualizer.PushSimulationStateToVisuals();
+                    vfx.Simulate(1f / 60f, 1);
+                    yield return null;
+                }
+
+                if (!string.IsNullOrEmpty(screenshotDir))
+                {
+                    SaveRenderTexturePng(mainCam, retinaRt, Path.Combine(screenshotDir, "after_click_wave.png"));
+                }
+
+                // Populate 8 simultaneous overlapping waves + live cursor mountain and benchmark CPU update time (< 0.5 ms)
+                for (int w = 0; w < 8; w++)
+                {
+                    float ang = w * (Mathf.PI * 2f / 8f);
+                    visualizer.Simulation.TriggerWaveAtLocalXZ(new Vector2(Mathf.Cos(ang) * 0.9f, Mathf.Sin(ang) * 0.7f), 1.0f);
+                    visualizer.Simulation.Step(0.04f);
+                }
+                Assert.That(visualizer.Simulation.ActiveWaveCount, Is.GreaterThanOrEqualTo(8));
+
+                // Warmup then time 120 simulation + VFX uniform upload steps with all 8 waves active
+                visualizer.Simulation.Step(0.004f);
+                visualizer.PushSimulationStateToVisuals();
+                Assert.AreEqual(8, visualizer.LastPackedWaveCount, "All 8 active waves must pack into InteractionWaves0 + InteractionWaves1.");
+
+                const int benchIterations = 120;
+                var sw = Stopwatch.StartNew();
+                for (int i = 0; i < benchIterations; i++)
+                {
+                    visualizer.Simulation.Step(0.004f);
+                    visualizer.PushSimulationStateToVisuals();
+                }
+                sw.Stop();
+                double avgCpuMs = sw.Elapsed.TotalMilliseconds / benchIterations;
+
+                // Render 30 full frames at 2048x1324 with 8 active waves + cursor mountain to materialize all HDRP RTHandles
+                for (int frame = 0; frame < 30; frame++)
+                {
+                    float angle = frame * 0.09f;
+                    var localTarget = new Vector2(Mathf.Cos(angle) * 1.15f, Mathf.Sin(angle) * 0.85f);
+                    var screenPos = ProjectTableLocalToScreen(mainCam, pointerInput, visualizer.transform, localTarget);
+                    var evt = RaycastCanonicalPointer(eventSystem, screenPos, pointerId: 1);
+                    if (evt.pointerCurrentRaycast.isValid)
+                    {
+                        ExecuteEvents.ExecuteHierarchy(evt.pointerCurrentRaycast.gameObject, evt, ExecuteEvents.pointerMoveHandler);
+                    }
+
+                    vfx.Simulate(1f / 60f, 1);
+                    mainCam.Render();
+                    yield return null;
+                }
+
+                long totalAllocated = Profiler.GetTotalAllocatedMemoryLong();
+                long graphicsAllocated = Profiler.GetAllocatedMemoryForGraphicsDriver();
+                Debug.Log($"[HoloTablePerf2048x1324] avgCpuUpdateMs={avgCpuMs:F4} ms, totalAllocatedMiB={totalAllocated / (1024.0 * 1024.0):F1}, graphicsAllocatedMiB={graphicsAllocated / (1024.0 * 1024.0):F1}, packedWaves={visualizer.LastPackedWaveCount}");
+
+                Assert.That(avgCpuMs, Is.LessThan(0.5),
+                    $"8-wave CPU simulation + VFX uniform upload ({avgCpuMs:F4} ms) must stay well under 0.5 ms.");
+                Assert.That(totalAllocated, Is.LessThan(850L * 1024L * 1024L),
+                    $"Total Unity allocated memory at 2048x1324 ({totalAllocated / (1024 * 1024)} MiB) must stay comfortably within budget.");
+                Assert.That(graphicsAllocated, Is.LessThan(850L * 1024L * 1024L),
+                    $"Graphics driver memory at 2048x1324 ({graphicsAllocated / (1024 * 1024)} MiB) must stay well below 1 GiB pod VRAM limit.");
+            }
+            finally
+            {
+                mainCam.targetTexture = prevTarget;
+                retinaRt.Release();
+                UnityEngine.Object.Destroy(retinaRt);
             }
 
-            // 180-frame continuous interaction endurance check
-            for (int frame = 0; frame < 180; frame++)
-            {
-                float angle = frame * 0.07f;
-                var localTarget = new Vector2(Mathf.Cos(angle) * 1.15f, Mathf.Sin(angle) * 0.85f);
-                var screenPos = ProjectTableLocalToScreen(mainCam, pointerInput, visualizer.transform, localTarget);
-                var evt = RaycastCanonicalPointer(eventSystem, screenPos, pointerId: 1);
-                if (evt.pointerCurrentRaycast.isValid)
-                {
-                    if (frame == 0)
-                    {
-                        ExecuteEvents.ExecuteHierarchy(evt.pointerCurrentRaycast.gameObject, evt, ExecuteEvents.pointerEnterHandler);
-                    }
-                    ExecuteEvents.ExecuteHierarchy(evt.pointerCurrentRaycast.gameObject, evt, ExecuteEvents.pointerMoveHandler);
-                    if (frame % 35 == 0)
-                    {
-                        evt.pointerPressRaycast = evt.pointerCurrentRaycast;
-                        evt.pressPosition = screenPos;
-                        ExecuteEvents.ExecuteHierarchy(evt.pointerCurrentRaycast.gameObject, evt, ExecuteEvents.pointerDownHandler);
-                    }
-                }
-
-                yield return null;
-            }
-
-            long totalAllocated = Profiler.GetTotalAllocatedMemoryLong();
-            long graphicsAllocated = Profiler.GetAllocatedMemoryForGraphicsDriver();
-            Assert.That(totalAllocated, Is.LessThan(950L * 1024L * 1024L),
-                $"Total Unity allocated memory ({totalAllocated / (1024 * 1024)} MiB) must stay comfortably within budget.");
-            Assert.That(graphicsAllocated, Is.LessThan(950L * 1024L * 1024L),
-                $"Graphics driver memory ({graphicsAllocated / (1024 * 1024)} MiB) must stay below 1 GiB pod VRAM limit.");
-
-            // Destroy visualizer GameObject and verify HoloTableInteractionField Texture2D & NativeArray clean up with zero leaks
-            UnityEngine.Object.Destroy(visualizer.gameObject);
-            yield return null;
-            yield return null;
-
+            // Confirm zero dynamic HoloTableInteractionField Texture2D exists anywhere
             foreach (var tex in Resources.FindObjectsOfTypeAll<Texture2D>())
             {
                 Assert.AreNotEqual("HoloTableInteractionField", tex.name,
-                    "Dynamic HoloTableInteractionField Texture2D must be destroyed cleanly without leaking.");
+                    "No dynamic HoloTableInteractionField Texture2D may exist.");
             }
         }
 
@@ -445,24 +481,132 @@ namespace HoloTable.Tests.PlayMode
             return default;
         }
 
-        private static void SampleGpuUploadedFieldAtUV(
-            HoloTableVfxVisualizer visualizer,
-            Vector2 uv,
+        private static void SampleGpuUniformsAtLocalXZ(
+            VisualEffect vfx,
+            Vector2 localXZ,
             out float r,
             out float g,
             out float b,
             out float a)
         {
-            var tex = visualizer.InteractionTexture;
-            int res = visualizer.FieldResolution;
-            int col = Mathf.Clamp(Mathf.FloorToInt(uv.x * res), 0, res - 1);
-            int row = Mathf.Clamp(Mathf.FloorToInt(uv.y * res), 0, res - 1);
-            NativeArray<ushort> raw = tex.GetRawTextureData<ushort>();
-            int idx = (row * res + col) * 4;
-            r = Mathf.HalfToFloat(raw[idx]);
-            g = Mathf.HalfToFloat(raw[idx + 1]);
-            b = Mathf.HalfToFloat(raw[idx + 2]);
-            a = Mathf.HalfToFloat(raw[idx + 3]);
+            Vector4 cursorState = vfx.GetVector4("InteractionCursor");
+            Vector4 mountainParams = vfx.GetVector4("InteractionMountainParams");
+            Vector4 targeterParams = vfx.GetVector4("InteractionTargeterParams");
+            Vector4 waveParams = vfx.GetVector4("InteractionWaveParams");
+            Matrix4x4 waves0 = vfx.GetMatrix4x4("InteractionWaves0");
+            Matrix4x4 waves1 = vfx.GetMatrix4x4("InteractionWaves1");
+
+            float presence = cursorState.z;
+            float mountainHeight = 0f;
+            float targeterMask = 0f;
+            float mountainMask = 0f;
+
+            if (presence > 1e-4f)
+            {
+                float dx = localXZ.x - cursorState.x;
+                float dz = localXZ.y - cursorState.y;
+                float rSq = dx * dx + dz * dz;
+                float dist = Mathf.Sqrt(rSq);
+
+                float expCore = rSq * mountainParams.y;
+                float core = expCore < 12f ? Mathf.Exp(-expCore) : 0f;
+                float expFoot = rSq * mountainParams.w;
+                float foothill = expFoot < 12f ? Mathf.Exp(-expFoot) : 0f;
+
+                float ringRadius = targeterParams.x;
+                float invRing = targeterParams.y;
+                float ringDist = Mathf.Abs(dist - ringRadius);
+                float expOuter = ringDist * ringDist * invRing;
+                float outerRing = expOuter < 12f ? Mathf.Exp(-expOuter) : 0f;
+
+                float innerRadius = ringRadius * (0.56f + 0.04f * cursorState.w);
+                float innerDist = Mathf.Abs(dist - innerRadius);
+                float expInner = innerDist * innerDist * invRing * 1.8f;
+                float innerRing = 0.65f * (expInner < 12f ? Mathf.Exp(-expInner) : 0f);
+
+                float expBull = rSq * targeterParams.w;
+                float bullseye = expBull < 12f ? Mathf.Exp(-expBull) : 0f;
+
+                float t0 = Mathf.Clamp01((dist - 0.16f) / 0.05f);
+                float t1 = Mathf.Clamp01((dist - 0.50f) / 0.06f);
+                float window = (t0 * t0 * (3f - 2f * t0)) * (1f - t1 * t1 * (3f - 2f * t1));
+                float crosshair = 0f;
+                if (window > 1e-4f)
+                {
+                    const float invTick = 1f / (2f * 0.044f * 0.044f);
+                    float ex = dx * dx * invTick;
+                    float ez = dz * dz * invTick;
+                    float tickX = ex < 12f ? Mathf.Exp(-ex) : 0f;
+                    float tickZ = ez < 12f ? Mathf.Exp(-ez) : 0f;
+                    crosshair = window * Mathf.Max(tickX, tickZ) * 0.92f;
+                }
+
+                float rawMountain = mountainParams.x * core + mountainParams.z * foothill + targeterParams.z * outerRing;
+                mountainHeight = rawMountain * presence;
+                targeterMask = Mathf.Clamp01(Mathf.Max(Mathf.Max(outerRing, innerRing), Mathf.Max(bullseye * 0.95f, crosshair)) * presence);
+                mountainMask = Mathf.Clamp01(Mathf.Max(foothill, outerRing * 0.85f) * presence);
+            }
+
+            Vector2 w0 = EvalWaveMatrix(localXZ, waves0, waveParams);
+            Vector2 w1 = EvalWaveMatrix(localXZ, waves1, waveParams);
+            r = Mathf.Clamp(mountainHeight + w0.x + w1.x, -0.14f, waveParams.w);
+            g = targeterMask;
+            b = Mathf.Clamp01(w0.y + w1.y);
+            a = mountainMask;
+        }
+
+        private static Vector2 EvalWaveMatrix(Vector2 localXZ, Matrix4x4 wavesMat, Vector4 waveParams)
+        {
+            float width = waveParams.x;
+            float invTwoWidthSq = waveParams.y;
+            float baseAmp = waveParams.z;
+            float maxBand = width * 4f;
+            float sumH = 0f;
+            float sumG = 0f;
+
+            for (int i = 0; i < 4; i++)
+            {
+                Vector4 w = wavesMat.GetRow(i);
+                float env = w.w;
+                if (env <= 1e-5f)
+                {
+                    continue;
+                }
+
+                float front = w.z;
+                float maxReach = front + maxBand;
+                float dx = localXZ.x - w.x;
+                float dz = localXZ.y - w.y;
+                if (Mathf.Abs(dx) > maxReach || Mathf.Abs(dz) > maxReach)
+                {
+                    continue;
+                }
+
+                float rSq = dx * dx + dz * dz;
+                float minReach = Mathf.Max(0f, front - maxBand * 1.4f);
+                if (rSq > maxReach * maxReach || rSq < minReach * minReach)
+                {
+                    continue;
+                }
+
+                float dist = Mathf.Sqrt(rSq);
+                float delta = dist - front;
+                float e0 = delta * delta * invTwoWidthSq;
+                float primary = e0 < 12f ? Mathf.Exp(-e0) : 0f;
+
+                float d1 = delta + width * 1.55f;
+                float e1 = d1 * d1 * invTwoWidthSq * 0.85f;
+                float trough = (dist <= front && e1 < 12f) ? 0.34f * Mathf.Exp(-e1) : 0f;
+
+                float d2 = delta + width * 3.0f;
+                float e2 = d2 * d2 * invTwoWidthSq * 0.75f;
+                float secondary = (dist <= front && e2 < 12f) ? 0.22f * Mathf.Exp(-e2) : 0f;
+
+                sumH += baseAmp * env * (primary - trough + secondary);
+                sumG += env * Mathf.Clamp01(primary + secondary * 0.45f);
+            }
+
+            return new Vector2(sumH, sumG);
         }
 
         private static void SaveRenderTexturePng(Camera cam, RenderTexture rt, string outputPath)

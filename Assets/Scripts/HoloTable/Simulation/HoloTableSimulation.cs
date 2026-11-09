@@ -320,6 +320,88 @@ namespace HoloTable.Simulation
                 mountainMask);
         }
 
+        public const int MaxGpuPackedWaves = 8;
+
+        /// <summary>
+        /// Packs the live simulation state into compact uniform vectors and two 4x4 matrices
+        /// (up to 8 simultaneous overlapping waves) for direct zero-texture GPU compute evaluation.
+        /// Performs O(ActiveWaveCount) scalar work with zero heap allocations.
+        /// </summary>
+        public int PackGpuUniforms(
+            out Vector4 cursorState,
+            out Vector4 mountainParams,
+            out Vector4 targeterParams,
+            out Vector4 waveParams,
+            out Matrix4x4 waves0,
+            out Matrix4x4 waves1)
+        {
+            cursorState = new Vector4(
+                m_CurrentCursorLocalXZ.x,
+                m_CurrentCursorLocalXZ.y,
+                m_TargeterPresence,
+                Mathf.Sin(m_TargeterPhase));
+
+            float invCoreTwoSigmaSq = 1f / (2f * m_Config.MountainCoreSigma * m_Config.MountainCoreSigma);
+            float invFoothillTwoSigmaSq = 1f / (2f * m_Config.MountainFoothillSigma * m_Config.MountainFoothillSigma);
+            mountainParams = new Vector4(
+                m_Config.MountainPeakHeight,
+                invCoreTwoSigmaSq,
+                m_Config.MountainFoothillHeight,
+                invFoothillTwoSigmaSq);
+
+            float invRingTwoSigmaSq = 1f / (2f * m_Config.TargeterRingWidth * m_Config.TargeterRingWidth);
+            float invCenterTwoSigmaSq = 1f / (2f * m_Config.TargeterCenterRadius * m_Config.TargeterCenterRadius);
+            targeterParams = new Vector4(
+                m_Config.TargeterRingRadius,
+                invRingTwoSigmaSq,
+                m_Config.TargeterRidgeHeight,
+                invCenterTwoSigmaSq);
+
+            float invWaveTwoWidthSq = 1f / (2f * m_Config.WaveRingWidth * m_Config.WaveRingWidth);
+            waveParams = new Vector4(
+                m_Config.WaveRingWidth,
+                invWaveTwoWidthSq,
+                m_Config.WaveAmplitude,
+                m_Config.MaxDisplacement);
+
+            waves0 = default;
+            waves1 = default;
+
+            if (m_ActiveWaveCount <= 0)
+            {
+                return 0;
+            }
+
+            float speed = m_Config.WaveSpeed;
+            float lifetime = m_Config.WaveLifetime;
+            int startIdx = Mathf.Max(0, m_ActiveWaveCount - MaxGpuPackedWaves);
+            int packedCount = 0;
+
+            for (int i = startIdx; i < m_ActiveWaveCount && packedCount < MaxGpuPackedWaves; i++)
+            {
+                var wave = m_Waves[i];
+                float front = speed * wave.Age;
+                float normalizedAge = Mathf.Clamp01(wave.Age / lifetime);
+                float attack = SmoothStep(0f, 0.045f, wave.Age);
+                float decay = (1f - normalizedAge) * Mathf.Sqrt(1f - normalizedAge);
+                float envelope = attack * decay * wave.Strength;
+
+                var packedRow = new Vector4(wave.OriginLocalXZ.x, wave.OriginLocalXZ.y, front, envelope);
+                if (packedCount < 4)
+                {
+                    waves0.SetRow(packedCount, packedRow);
+                }
+                else
+                {
+                    waves1.SetRow(packedCount - 4, packedRow);
+                }
+
+                packedCount++;
+            }
+
+            return packedCount;
+        }
+
         public void WriteInteractionFieldHalf4(ushort[] destination, int width, int height)
         {
             if (destination == null)

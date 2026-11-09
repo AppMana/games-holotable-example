@@ -1,5 +1,4 @@
 using HoloTable.Simulation;
-using Unity.Collections;
 using UnityEngine;
 using UnityEngine.VFX;
 using UnityEngine.VFX.Utility;
@@ -9,12 +8,18 @@ namespace HoloTable.Runtime
     /// <summary>
     /// Visualization layer driving the Spaceship HoloTable VFX Graph and subsurface targeter light
     /// from the pure <see cref="HoloTableSimulation"/> data model.
-    /// Uploads a pre-allocated RGBAHalf interaction height/mask texture each frame with zero GC allocations.
+    /// Uploads compact Vector4 and Matrix4x4 simulation uniforms directly to VFX Graph GPU compute
+    /// with zero dynamic textures, zero D3D12 texture uploads, and zero GC allocations.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class HoloTableVfxVisualizer : MonoBehaviour
     {
-        private static readonly int s_InteractionFieldId = Shader.PropertyToID("InteractionField");
+        private static readonly int s_InteractionCursorId = Shader.PropertyToID("InteractionCursor");
+        private static readonly int s_InteractionMountainParamsId = Shader.PropertyToID("InteractionMountainParams");
+        private static readonly int s_InteractionTargeterParamsId = Shader.PropertyToID("InteractionTargeterParams");
+        private static readonly int s_InteractionWaveParamsId = Shader.PropertyToID("InteractionWaveParams");
+        private static readonly int s_InteractionWaves0Id = Shader.PropertyToID("InteractionWaves0");
+        private static readonly int s_InteractionWaves1Id = Shader.PropertyToID("InteractionWaves1");
         private static readonly int s_InteractionTargetColorId = Shader.PropertyToID("InteractionTargetColor");
         private static readonly int s_InteractionWaveColorId = Shader.PropertyToID("InteractionWaveColor");
         private static readonly int s_LandingTargetPositionId = Shader.PropertyToID("LandingTargetPosition");
@@ -24,7 +29,6 @@ namespace HoloTable.Runtime
 
         [Header("Simulation Configuration")]
         [SerializeField] private HoloTableSimulationConfig m_Config = HoloTableSimulationConfig.Default;
-        [SerializeField, Range(64, 256)] private int m_FieldResolution = 192;
 
         [Header("Scene & VFX References")]
         [SerializeField] private VisualEffect m_VisualEffect;
@@ -44,9 +48,17 @@ namespace HoloTable.Runtime
         [SerializeField] private float m_TargetLightPeakIntensity = 4.5f;
 
         private HoloTableSimulation m_Simulation;
-        private Texture2D m_InteractionTexture;
-        private NativeArray<ushort> m_PixelBuffer;
-        private bool m_HasInteractionFieldProp;
+        private Vector4 m_LastPackedCursorState;
+        private Matrix4x4 m_LastPackedWaves0;
+        private Matrix4x4 m_LastPackedWaves1;
+        private int m_LastPackedWaveCount;
+
+        private bool m_HasCursorProp;
+        private bool m_HasMountainParamsProp;
+        private bool m_HasTargeterParamsProp;
+        private bool m_HasWaveParamsProp;
+        private bool m_HasWaves0Prop;
+        private bool m_HasWaves1Prop;
         private bool m_HasTargetColorProp;
         private bool m_HasWaveColorProp;
         private bool m_HasLandingTargetProp;
@@ -56,24 +68,26 @@ namespace HoloTable.Runtime
 
         public HoloTableSimulation Simulation => m_Simulation;
 
-        public Texture2D InteractionTexture => m_InteractionTexture;
-
-        public int FieldResolution => m_FieldResolution;
-
         public VisualEffect VisualEffectComponent => m_VisualEffect;
 
         public HoloTablePointerInput PointerInput => m_PointerInput;
 
         public Light TargetSubsurfaceLight => m_TargetSubsurfaceLight;
 
+        public Vector4 LastPackedCursorState => m_LastPackedCursorState;
+
+        public Matrix4x4 LastPackedWaves0 => m_LastPackedWaves0;
+
+        public Matrix4x4 LastPackedWaves1 => m_LastPackedWaves1;
+
+        public int LastPackedWaveCount => m_LastPackedWaveCount;
+
         private void Awake()
         {
-            m_FieldResolution = Mathf.Clamp(m_FieldResolution, 64, 256);
             m_Simulation = new HoloTableSimulation(m_Config);
 
             ResolveSceneReferences();
             DisableLegacyRandomAnimationRig();
-            AllocateInteractionTexture();
             CacheVfxPropertyAvailability();
 
             if (m_PointerInput != null)
@@ -81,6 +95,7 @@ namespace HoloTable.Runtime
                 m_PointerInput.BindSimulation(m_Simulation, transform);
             }
 
+            PushStaticVfxParameters();
             PushSimulationStateToVisuals();
         }
 
@@ -108,53 +123,58 @@ namespace HoloTable.Runtime
             PushSimulationStateToVisuals();
         }
 
-        private void OnDestroy()
-        {
-            if (m_PixelBuffer.IsCreated)
-            {
-                m_PixelBuffer.Dispose();
-            }
-
-            if (m_InteractionTexture != null)
-            {
-                Destroy(m_InteractionTexture);
-                m_InteractionTexture = null;
-            }
-        }
-
         /// <summary>
-        /// Immediately synchronizes the CPU simulation state into the GPU texture and VFX properties.
+        /// Immediately synchronizes the CPU simulation state into compact GPU VFX uniform properties.
         /// Public so integration tests can deterministically step and verify GPU-bound state.
         /// </summary>
         public void PushSimulationStateToVisuals()
         {
-            if (m_Simulation == null || !m_PixelBuffer.IsCreated || m_InteractionTexture == null)
+            if (m_Simulation == null)
             {
                 return;
             }
 
-            m_Simulation.WriteInteractionFieldHalf4(m_PixelBuffer.AsSpan(), m_FieldResolution, m_FieldResolution);
-            m_InteractionTexture.SetPixelData(m_PixelBuffer, 0);
-            m_InteractionTexture.Apply(updateMipmaps: false, makeNoLongerReadable: false);
+            m_LastPackedWaveCount = m_Simulation.PackGpuUniforms(
+                out m_LastPackedCursorState,
+                out var mountainParams,
+                out var targeterParams,
+                out var waveParams,
+                out m_LastPackedWaves0,
+                out m_LastPackedWaves1);
 
             var localTargetPos = m_Simulation.CurrentTargetLocalPosition;
             bool showTarget = m_Simulation.TargeterPresence > 0.005f;
 
             if (m_VisualEffect != null)
             {
-                if (m_HasInteractionFieldProp)
+                if (m_HasCursorProp)
                 {
-                    m_VisualEffect.SetTexture(s_InteractionFieldId, m_InteractionTexture);
+                    m_VisualEffect.SetVector4(s_InteractionCursorId, m_LastPackedCursorState);
                 }
 
-                if (m_HasTargetColorProp)
+                if (m_HasMountainParamsProp)
                 {
-                    m_VisualEffect.SetVector4(s_InteractionTargetColorId, (Vector4)m_TargeterColor);
+                    m_VisualEffect.SetVector4(s_InteractionMountainParamsId, mountainParams);
                 }
 
-                if (m_HasWaveColorProp)
+                if (m_HasTargeterParamsProp)
                 {
-                    m_VisualEffect.SetVector4(s_InteractionWaveColorId, (Vector4)m_WaveColor);
+                    m_VisualEffect.SetVector4(s_InteractionTargeterParamsId, targeterParams);
+                }
+
+                if (m_HasWaveParamsProp)
+                {
+                    m_VisualEffect.SetVector4(s_InteractionWaveParamsId, waveParams);
+                }
+
+                if (m_HasWaves0Prop)
+                {
+                    m_VisualEffect.SetMatrix4x4(s_InteractionWaves0Id, m_LastPackedWaves0);
+                }
+
+                if (m_HasWaves1Prop)
+                {
+                    m_VisualEffect.SetMatrix4x4(s_InteractionWaves1Id, m_LastPackedWaves1);
                 }
 
                 if (m_HasLandingTargetProp)
@@ -166,19 +186,37 @@ namespace HoloTable.Runtime
                 {
                     m_VisualEffect.SetBool(s_DisplayTargetId, showTarget);
                 }
-
-                if (m_HasAABoxCenterProp)
-                {
-                    m_VisualEffect.SetVector3(s_AABoxCenterId, m_AmbientTerrainCenter);
-                }
-
-                if (m_HasAABoxSizeProp)
-                {
-                    m_VisualEffect.SetVector3(s_AABoxSizeId, m_AmbientTerrainSize);
-                }
             }
 
             UpdateTargetSubsurfaceLight(localTargetPos, showTarget);
+        }
+
+        private void PushStaticVfxParameters()
+        {
+            if (m_VisualEffect == null)
+            {
+                return;
+            }
+
+            if (m_HasTargetColorProp)
+            {
+                m_VisualEffect.SetVector4(s_InteractionTargetColorId, (Vector4)m_TargeterColor);
+            }
+
+            if (m_HasWaveColorProp)
+            {
+                m_VisualEffect.SetVector4(s_InteractionWaveColorId, (Vector4)m_WaveColor);
+            }
+
+            if (m_HasAABoxCenterProp)
+            {
+                m_VisualEffect.SetVector3(s_AABoxCenterId, m_AmbientTerrainCenter);
+            }
+
+            if (m_HasAABoxSizeProp)
+            {
+                m_VisualEffect.SetVector3(s_AABoxSizeId, m_AmbientTerrainSize);
+            }
         }
 
         private void UpdateTargetSubsurfaceLight(Vector3 localTargetPos, bool showTarget)
@@ -255,24 +293,6 @@ namespace HoloTable.Runtime
             }
         }
 
-        private void AllocateInteractionTexture()
-        {
-            int elementCount = m_FieldResolution * m_FieldResolution * 4;
-            m_PixelBuffer = new NativeArray<ushort>(elementCount, Allocator.Persistent, NativeArrayOptions.ClearMemory);
-
-            m_InteractionTexture = new Texture2D(
-                m_FieldResolution,
-                m_FieldResolution,
-                TextureFormat.RGBAHalf,
-                mipChain: false,
-                linear: true)
-            {
-                name = "HoloTableInteractionField",
-                wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear
-            };
-        }
-
         private void CacheVfxPropertyAvailability()
         {
             if (m_VisualEffect == null)
@@ -280,7 +300,12 @@ namespace HoloTable.Runtime
                 return;
             }
 
-            m_HasInteractionFieldProp = m_VisualEffect.HasTexture(s_InteractionFieldId);
+            m_HasCursorProp = m_VisualEffect.HasVector4(s_InteractionCursorId);
+            m_HasMountainParamsProp = m_VisualEffect.HasVector4(s_InteractionMountainParamsId);
+            m_HasTargeterParamsProp = m_VisualEffect.HasVector4(s_InteractionTargeterParamsId);
+            m_HasWaveParamsProp = m_VisualEffect.HasVector4(s_InteractionWaveParamsId);
+            m_HasWaves0Prop = m_VisualEffect.HasMatrix4x4(s_InteractionWaves0Id);
+            m_HasWaves1Prop = m_VisualEffect.HasMatrix4x4(s_InteractionWaves1Id);
             m_HasTargetColorProp = m_VisualEffect.HasVector4(s_InteractionTargetColorId);
             m_HasWaveColorProp = m_VisualEffect.HasVector4(s_InteractionWaveColorId);
             m_HasLandingTargetProp = m_VisualEffect.HasVector3(s_LandingTargetPositionId);
